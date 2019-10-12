@@ -75,32 +75,32 @@ hyphenate = \hypmap -> \(Word s) -> -- s may have trailing punctuation
     in map (\(x,y)->(HypWord x, Word (y++snd wordPunc))) combos --convert to required format, while adding punc to second part of the words
 
 -- 8. lineBreaks *
--- breakLineProcess :: Int -> (Line, Line) -> (Line, Line)
--- breakLineProcess = \maxlen -> \linepair ->
---     case linepair of
---         ([],x) -> ([],x)
---         (x,[]) -> (x,[])
---         (x,y) | (lineLen x + 1) < maxlen -> (x++[head y], tail y)
---         _ -> linepair
-
--- lineBreaks :: EnHyp -> Int -> Line -> [(Line,Line)]--[(Line, Line)] -- a list of tuples of split lines
--- lineBreaks = \hypmap -> \maxlen -> \l -> 
---     let linePair = breakLine maxlen l
---         procLinePair = breakLineProcess maxlen (linePair)
---         lastHypList = hyphenate hypmap ((last . fst) procLinePair)
---     in if (lineLen (fst procLinePair)) > maxlen 
---         then let result = [linePair] ++ (map (\(a,b)->((fst linePair)++[a],[b]++(snd procLinePair))) lastHypList) -- breakLine, map
---             in filter (\(l1,l2)-> lineLen l1 <= maxlen) result --filter
---         else [(l,[])]
+breakLineProcess :: Int -> (Line, Line) -> (Line, Line)
+breakLineProcess = \maxlen -> \linepair ->
+    case linepair of
+        ([],x) -> ([],x)
+        (x,[]) -> (x,[])
+        (x,y) | (lineLen x + 1) < maxlen -> (x++[head y], tail y)
+        _ -> linepair
 
 lineBreaks :: EnHyp -> Int -> Line -> [(Line,Line)]--[(Line, Line)] -- a list of tuples of split lines
 lineBreaks = \hypmap -> \maxlen -> \l -> 
     let linePair = breakLine maxlen l
-        lastHypList = hyphenate hypmap (last l) -- wrong assumption to use last
-    in if (lineLen l) > maxlen 
-        then let result = [linePair] ++ (map (\(a,b)->((fst linePair)++[a],[b])) lastHypList) -- breakLine, map
+        procLinePair = breakLineProcess maxlen (linePair)
+        lastHypList = hyphenate hypmap ((last . fst) procLinePair)
+    in if (lineLen (fst procLinePair)) >= maxlen 
+        then let result = [linePair] ++ (map (\(a,b)->((fst linePair)++[a],[b]++(snd procLinePair))) lastHypList) -- breakLine, map
             in filter (\(l1,l2)-> lineLen l1 <= maxlen) result --filter
         else [(l,[])]
+
+-- lineBreaks :: EnHyp -> Int -> Line -> [(Line,Line)]--[(Line, Line)] -- a list of tuples of split lines
+-- lineBreaks = \hypmap -> \maxlen -> \l -> 
+--     let linePair = breakLine maxlen l
+--         lastHypList = hyphenate hypmap (last l) -- wrong assumption to use last
+--     in if (lineLen l) > maxlen 
+--         then let result = [linePair] ++ (map (\(a,b)->((fst linePair)++[a],[b])) lastHypList) -- breakLine, map
+--             in filter (\(l1,l2)-> lineLen l1 <= maxlen) result --filter
+--         else [(l,[])]
 
         
 -- 9. insertions
@@ -215,17 +215,20 @@ justifyLine = \defc -> \hypmap -> \maxlen -> \l ->
         Just (bl, cont) -> [bl] ++ justifyLine defc hypmap maxlen cont
         Nothing -> case l of 
             [] -> []
-            _ -> if (tokLen . head) l <= maxlen then [[head l]] ++ justifyLine defc hypmap maxlen (tail l) else [l]
-            
+            _ -> if (tokLen . head) l <= maxlen then [[head l]] ++ justifyLine defc hypmap maxlen (tail l) else []
 
-justifyText :: Costs -> EnHyp -> Int -> String -> [String]
-justifyText = \defc -> \hypmap -> \maxlen -> \s -> (map (line2str) . (justifyLine defc hypmap maxlen) . str2line) s
+
+-- justifyText :: Costs -> EnHyp -> Int -> String -> [String]
+justifyText = \defc -> \hypmap -> \maxlen -> \s -> 
+    let answer = ((justifyLine defc hypmap maxlen) . str2line) s
+        answerNonUgly = init answer ++ [filter (/= Blank) (last answer)] -- remove blanks from last line
+    in map (line2str) answerNonUgly
 
 text = "He who controls the past controls the future. He who controls the present controls the past."
-defaultCosts = Costs 1.0 1.0 0.5 0.5
+defaultCosts = Costs 1.0 1.0 1.0 1.0
 enHyp = [("controls",["co","nt","ro","ls"]),("future",["fu","tu","re"]),("present",["pre","se","nt"])]
 
 -- main = putStr $ show $ lineBreaks enHyp 12 [Word "He"]
--- main = putStr $ show $ bestLineBreak defaultCosts enHyp 8 [Word "the",Word "future.",Word "He",Word "who",Word "controls",Word "the",Word "present",Word "controls",Word "the",Word "past."]
--- main = putStr $ show $ justifyLine defaultCosts enHyp 8 (str2line text)
-main = putStr $ unlines $ justifyText defaultCosts enHyp 8 text
+-- main = putStr $ show $ lineBreaks enHyp 8 [Word "ntrols",Word "the",Word "present",Word "controls",Word "the",Word "past."]
+-- main = putStr $ show $ justifyLine defaultCosts enHyp 15 (str2line text)
+main = putStr $ unlines $ justifyText defaultCosts enHyp 15 text -- enHyp 16 causes
