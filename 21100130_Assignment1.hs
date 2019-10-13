@@ -85,13 +85,13 @@ breakLineProcess = \maxlen -> \linepair ->
 
 lineBreaks :: EnHyp -> Int -> Line -> [(Line,Line)]--[(Line, Line)] -- a list of tuples of split lines
 lineBreaks = \hypmap -> \maxlen -> \l -> 
-    let linePair = breakLine maxlen l
-        procLinePair = breakLineProcess maxlen (linePair)
-        lastHypList = hyphenate hypmap ((last . fst) procLinePair)
-    in if (lineLen (fst procLinePair)) >= maxlen 
-        then let result = [linePair] ++ (map (\(a,b)->((fst linePair)++[a],[b]++(snd procLinePair))) lastHypList) -- breakLine, map
-            in filter (\(l1,l2)-> lineLen l1 <= maxlen) result --filter
-        else [(l,[])]
+    if (lineLen l) >= maxlen 
+    then let linePair = breakLine maxlen l
+             procLinePair = breakLineProcess maxlen (linePair)
+             lastHypList = hyphenate hypmap ((last . fst) procLinePair)    
+             result = [linePair] ++ (map (\(a,b)->((fst linePair)++[a],[b]++(snd procLinePair))) lastHypList) -- breakLine, map
+        in filter (\lp-> (lineLen . fst) lp <= maxlen) result --filter
+    else [(l,[])]
 
 -- lineBreaks :: EnHyp -> Int -> Line -> [(Line,Line)]--[(Line, Line)] -- a list of tuples of split lines
 -- lineBreaks = \hypmap -> \maxlen -> \l -> 
@@ -105,16 +105,16 @@ lineBreaks = \hypmap -> \maxlen -> \l ->
         
 -- 9. insertions
 insertAt :: a -> Int -> [a] -> [a]
-insertAt = \var -> \pos -> \l -> take (pos-1) l ++ [var] ++ drop (pos-1) l
+insertAt = \v -> \pos -> \l -> take (pos-1) l ++ [v] ++ drop (pos-1) l
 
 repeatInsert :: a -> Int -> [a] -> [[a]] -- recursive accumulator based helper function
-repeatInsert = \var -> \n -> \l ->
+repeatInsert = \v -> \n -> \l ->
     case n of    
         0 -> []
-        _ -> insertAt var n l : repeatInsert var (n-1) l
+        _ -> insertAt v n l : repeatInsert v (n-1) l
 
 insertions :: a -> [a] -> [[a]]
-insertions = \var -> \l -> reverse(repeatInsert var (length l+1) l)
+insertions = \v -> \l -> reverse(repeatInsert v (length l+1) l)
         
 -- 10. insertBlanks
 removeDup :: Eq a => [a] -> [a] -- lists are Equatable, so we can remove duplicate lists too from a list
@@ -123,6 +123,7 @@ removeDup = \l ->
         [] -> []
         (x:xs) -> x : removeDup(filter (x /=) xs)
 
+removeDupfilterHeadLast :: [Line] -> [Line]
 removeDupfilterHeadLast = removeDup . filter (\x -> head x /= Blank && last x /= Blank)
 
 insertBlanksRepeat :: Int -> [Line] -> [Line]
@@ -146,7 +147,7 @@ countBetweenBlanks = \bl -> \acc -> -- accumulator based helper function
     case bl of
         [] -> init acc
         (x:xs) | x == Blank -> countBetweenBlanks xs (acc ++ [0]) -- concatenate a new element (counter for the next in-between blanks space)
-        (x:xs) -> countBetweenBlanks xs ((init acc) ++ [(last acc + 1)]) -- this time, pass in the new accumulator list which has its last value incremented
+        (_:xs) -> countBetweenBlanks xs ((init acc) ++ [(last acc + 1)]) -- this time, pass in the new accumulator list which has its last value incremented
 
 blankDistances :: Line -> [Int]
 blankDistances = \l ->
@@ -161,12 +162,10 @@ blankDistances = \l ->
 
 -- 12. var
 avg :: [Double] -> Double
-avg l = (sum l) / (fromIntegral (length l)) 
+avg l = sum l / (fromIntegral (length l)) 
 
 var :: [Double] -> Double
-var = \l -> let n = length l
-                u = avg l
-    in foldr ((+).(\x -> (x-u)^2)) 0 l / fromIntegral n -- (x-u)^2 for every element and sum them up, then finally divide by n (number of elements), fromIntegral convert to Num type
+var = \l -> foldr ((+).(\x -> (x-avg l)**2)) 0 l / fromIntegral (length l) -- (x-u)**2 since ** for rationals, for every element and sum them up, then finally divide by n (number of elements), fromIntegral convert to Num type
  
 -- 13. data Costs, lineBadness
 data Costs = Costs Double Double Double Double deriving (Eq,Show) -- (intoducing a blank) (blanks close) (blanks spread unevenly) (hyphenating the last word)
@@ -180,7 +179,7 @@ listInt2Double = \il ->
 hypCostCalc :: Token -> Double -- depending on the last token passed of the line
 hypCostCalc = \t ->
     case t of
-        HypWord s -> 1.0
+        HypWord _ -> 1.0
         _ -> 0.0
 
 lineBadness :: Costs -> Line -> Double
@@ -199,13 +198,13 @@ insertMaxBlanks = \l -> \maxlen -> insertBlanks (maxlen - lineLen l) l
 bestLineBreak :: Costs -> EnHyp -> Int -> Line -> Maybe (Line,Line) -- either Just or Nothing
 bestLineBreak = \defc -> \hypmap -> \maxlen -> \l -> 
     let allLineBreaks = lineBreaks hypmap maxlen l
-        breaksWithBlanks = concat (map (\(x,y)-> map (\l->(l,y)) (insertMaxBlanks x maxlen)) allLineBreaks)
+        breaksWithBlanks = concat (map (\(x,y)-> map (\ln->(ln,y)) (insertMaxBlanks x maxlen)) allLineBreaks)
         breaksWithBadness = map (\(bl,cont)-> (lineBadness defc bl, bl, cont)) breaksWithBlanks
-        scores = map (\(bl,cont)-> lineBadness defc bl) breaksWithBlanks
-        bestBreaks = filter (\(s,l1,l2)-> s==(minimum scores)) breaksWithBadness
+        scores = map (\(bl,_)-> lineBadness defc bl) breaksWithBlanks
+        bestBreaks = filter (\(s,_,_)-> s==(minimum scores)) breaksWithBadness
     in case bestBreaks of
         [] -> Nothing -- in the case where no breaks exist, return nothing
-        _ -> Just ((head . map (\(s,l1,l2) -> (l1,l2))) bestBreaks) --if there are multiple with the same score get the head
+        _ -> Just ((head . map (\(_,l1,l2) -> (l1,l2))) bestBreaks) --if there are multiple with the same score get the head
 
 -- 15. justifyText *
 justifyLine :: Costs -> EnHyp -> Int -> Line -> [Line]
@@ -218,17 +217,23 @@ justifyLine = \defc -> \hypmap -> \maxlen -> \l ->
             _ -> if (tokLen . head) l <= maxlen then [[head l]] ++ justifyLine defc hypmap maxlen (tail l) else []
 
 
--- justifyText :: Costs -> EnHyp -> Int -> String -> [String]
+justifyText :: Costs -> EnHyp -> Int -> String -> [String]
 justifyText = \defc -> \hypmap -> \maxlen -> \s -> 
     let answer = ((justifyLine defc hypmap maxlen) . str2line) s
         answerNonUgly = init answer ++ [filter (/= Blank) (last answer)] -- remove blanks from last line
     in map (line2str) answerNonUgly
 
+text :: String
 text = "He who controls the past controls the future. He who controls the present controls the past."
+
+defaultCosts :: Costs
 defaultCosts = Costs 1.0 1.0 1.0 1.0
+
+enHyp :: EnHyp
 enHyp = [("controls",["co","nt","ro","ls"]),("future",["fu","tu","re"]),("present",["pre","se","nt"])]
 
 -- main = putStr $ show $ lineBreaks enHyp 12 [Word "He"]
--- main = putStr $ show $ lineBreaks enHyp 8 [Word "ntrols",Word "the",Word "present",Word "controls",Word "the",Word "past."]
+-- main = putStr $ show $ lineBreaks enHyp 22 [Word "controls",Word "the",Word "past",Word "controls",Word "the",Word "future.",Word "He",Word "who",Word "controls",Word "the",Word "present",Word "controls",Word "the",Word "past."]
 -- main = putStr $ show $ justifyLine defaultCosts enHyp 15 (str2line text)
-main = putStr $ unlines $ justifyText defaultCosts enHyp 15 text -- enHyp 16 causes
+main :: IO ()
+main = putStr $ unlines $ justifyText defaultCosts enHyp 15 text -- everything fixed
